@@ -30,6 +30,8 @@ pub(crate) struct Fake {
     pub(crate) writes: usize,
     /// Path prefixes that lead elsewhere, by lowercase prefix, for `resolved`.
     pub(crate) redirects: BTreeMap<String, String>,
+    /// Short (8.3) path prefixes and their full names, by lowercase prefix, for `long_name`.
+    pub(crate) short_names: BTreeMap<String, String>,
     /// Folder identities by lowercase path; a folder without one is "old:<path>".
     pub(crate) ids: BTreeMap<String, String>,
     pub(crate) next_id: u32,
@@ -423,6 +425,16 @@ impl Machine for Fake {
         for (from, to) in &self.redirects {
             if let Some(rest) = text.strip_prefix(from.as_str()) {
                 return Ok(PathBuf::from(format!("{to}{rest}")));
+            }
+        }
+        Ok(PathBuf::from(text))
+    }
+
+    fn long_name(&self, path: &Path) -> Result<PathBuf, String> {
+        let text = low(path.to_string_lossy().trim_end_matches('\\'));
+        for (short, long) in &self.short_names {
+            if let Some(rest) = text.strip_prefix(short.as_str()) {
+                return Ok(PathBuf::from(format!("{long}{rest}")));
             }
         }
         Ok(PathBuf::from(text))

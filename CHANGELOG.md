@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1, 2026-11-11
+
+### Crash dumps
+
+- A dump folder written with a short (8.3) name, such as `C:\PROGRA~1\Dumps` or a temp folder Windows spells that way, is accepted as the folder it is. Set up compared the folder's final path with its spelling as text and refused it as reached through a link.
+
 ## 1.0.0, 2026-11-11
 
 ### Data recovery

@@ -290,6 +290,9 @@ pub trait Machine {
     /// The path Windows reaches for an existing file or folder, every link and mount point
     /// followed.
     fn resolved(&self, path: &Path) -> Result<PathBuf, String>;
+    /// An existing path with each short (8.3) part written out in full and no link
+    /// followed, so it compares with `resolved` by text.
+    fn long_name(&self, path: &Path) -> Result<PathBuf, String>;
     /// A folder's identity as Windows numbers it (its volume and file ID), or `None` when
     /// nothing is there. A folder removed and made again under the same name has another.
     fn folder_id(&self, path: &Path) -> Result<Option<String>, String>;

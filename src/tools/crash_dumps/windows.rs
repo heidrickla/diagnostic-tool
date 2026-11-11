@@ -794,6 +794,24 @@ impl Machine for Windows {
         }))
     }
 
+    fn long_name(&self, path: &Path) -> Result<PathBuf, String> {
+        use std::os::windows::ffi::OsStringExt;
+        use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
+        let wide = wide_path(path);
+        let mut name = vec![0u16; 1024];
+        // SAFETY: `wide` is nul-terminated and `name` is writable for its stated length.
+        let len = unsafe { GetLongPathNameW(wide.as_ptr(), name.as_mut_ptr(), name.len() as u32) }
+            as usize;
+        if len == 0 || len >= name.len() {
+            return Err(format!(
+                "the full name of {} could not be read ({})",
+                path.display(),
+                io::Error::last_os_error()
+            ));
+        }
+        Ok(PathBuf::from(std::ffi::OsString::from_wide(&name[..len])))
+    }
+
     fn folder_id(&self, path: &Path) -> Result<Option<String>, String> {
         use std::os::windows::io::AsRawHandle;
         if self.folder(path)? == PathKind::Missing {
@@ -1414,8 +1432,6 @@ mod tests {
         assert_eq!(w.folder(&windows).unwrap(), PathKind::Folder);
     }
 
-    /// A junction is seen as a link where it sits, a folder below it is found to lead to
-    /// the junction's target, and the walk up the path finds the junction.
     /// A process is known by its id and start time: this one runs, the same id with
     /// another start time is a process that ended, and an id no process has is not running.
     #[test]
@@ -1429,6 +1445,9 @@ mod tests {
         assert_eq!(exclusive(|| Ok(7)), Ok(7));
     }
 
+    /// A junction is seen as a link where it sits, a folder below it is found to lead to
+    /// the junction's target, and its full name keeps the junction, even where the temp
+    /// folder is spelled with a short (8.3) name.
     #[test]
     fn a_folder_under_a_junction_leads_elsewhere() {
         let base =
@@ -1451,15 +1470,22 @@ mod tests {
         let below = junction.join("sub");
         assert_eq!(w.folder(&below).unwrap(), PathKind::Folder);
         let real = w.resolved(&below).unwrap();
+        let full = |p: &Path| w.long_name(p).unwrap();
         assert!(
-            super::super::same_place(&real, &target.join("sub")),
+            super::super::same_place(&real, &full(&target.join("sub"))),
             "{}",
             real.display()
         );
         assert!(super::super::same_place(
             &w.resolved(&target).unwrap(),
-            &target
+            &full(&target)
         ));
+        // The full name follows no link: the folder below the junction keeps its spelling.
+        assert!(super::super::same_place(
+            &full(&below),
+            &full(&base).join("junction").join("sub")
+        ));
+        assert!(!super::super::same_place(&real, &full(&below)));
         assert_eq!(
             super::super::link_on_path(&w, &below).unwrap(),
             Some(junction.clone())

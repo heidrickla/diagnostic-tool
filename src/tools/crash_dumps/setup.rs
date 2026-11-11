@@ -278,7 +278,7 @@ fn plan_folder<M: Machine>(
     }
     if let Some(existing) = existing {
         let real = m.resolved(existing)?;
-        if !same_place(&real, existing) {
+        if !same_place(&real, &m.long_name(existing)?) {
             return Err(format!(
                 "{} leads to {}; choose a folder that is not reached through a link",
                 existing.display(),
@@ -1132,7 +1132,9 @@ fn apply<M: Machine>(
         // Checked through the folder itself: a link put in its path since the plan was
         // made shows here, before any setting names the folder.
         match m.resolved(folder) {
-            Ok(real) if same_place(&real, folder) => {}
+            Ok(real)
+                if m.long_name(folder)
+                    .is_ok_and(|full| same_place(&real, &full)) => {}
             Ok(real) => {
                 return Outcome::Failed {
                     reason: format!(
@@ -1582,6 +1584,38 @@ mod tests {
 
     fn go() -> AtomicBool {
         AtomicBool::new(false)
+    }
+
+    /// The guard: a folder spelled with a short (8.3) name is the folder itself, not a link,
+    /// so set up accepts it whether it exists or is made under a short-named parent.
+    #[test]
+    fn a_dump_folder_spelled_with_a_short_name_is_accepted() {
+        let apps_in = |folder: &str| SetUpOptions {
+            confirmed: true,
+            kernel: None,
+            applications: Some(AppOptions {
+                folder: folder.into(),
+                ..AppOptions::default()
+            }),
+        };
+        for existing in [false, true] {
+            let mut m = Fake::windows_default();
+            m.folders
+                .insert(r"c:\progra~1".into(), (PathKind::Folder, None));
+            if existing {
+                m.folders
+                    .insert(r"c:\progra~1\dumps".into(), (PathKind::Folder, None));
+            }
+            for map in [&mut m.redirects, &mut m.short_names] {
+                map.insert(r"c:\progra~1".into(), r"c:\program files".into());
+            }
+            let out = set(&mut m, &apps_in(r"C:\PROGRA~1\Dumps"));
+            assert!(
+                matches!(out.outcome, Outcome::Done),
+                "existing {existing}: {out:?}"
+            );
+            assert!(m.value(LOCAL_DUMPS, "DumpFolder").is_some());
+        }
     }
 
     /// The guard: an application dump folder reached through a junction is refused
