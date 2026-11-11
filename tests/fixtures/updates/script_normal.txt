@@ -1,0 +1,10 @@
+COUNT	901
+R	search	2026-11-05T09:19:58
+R	install	2026-11-05T09:20:04
+H	2026-11-05T05:09:05	1	2	00000000	Security Intelligence Update for Microsoft Defender Antivirus - KB2267602 (Version 1.463.147.0) - Current Channel (Broad)
+H	2026-11-04T22:23:21	1	2	00000000	2026-10 Cumulative Update for Windows 11 Version 25H2 for x64-based Systems (KB5044284)
+H	2026-10-30T10:00:00	1	4	80FFFFFF	Example Corp - Display - 31.0.1.2
+H	2026-10-28T08:00:00	1	4	80070002	2026-09 Cumulative Update for .NET Framework 3.5 and 4.8.1 for Windows 11 (KB5043001)
+H	2026-10-20T08:00:00	2	2	00000000	Update for Windows 11 Version 25H2 (KB5042000)
+H	2026-10-10T08:00:00	1	2	00000000	Windows Malicious Software Removal Tool x64 - v5.131 (KB890830)
+H	2026-10-08T08:00:00	1	1	00000000	Example Corp - Net - 1.0.0.0

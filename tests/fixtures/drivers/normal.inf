@@ -1,0 +1,15 @@
+; Example audio driver
+[Version]
+Signature="$WINDOWS NT$"
+Class=MEDIA
+ClassGUID={4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider=%Mfg%   ; the maker
+CatalogFile=exaudio.cat
+DriverVer=03/05/2024,6.0.9500.1
+
+[Manufacturer]
+%Mfg%=Models,NTamd64
+
+[Strings]
+Mfg = "Example Audio Inc."
+DiskName="Setup disk; v2"

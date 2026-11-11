@@ -1,0 +1,8 @@
+[Version
+DriverVer=13/45/2024,9.9
+[Version]
+Provider
+=novalue
+DriverVer=99/99/9999,1.0
+%%%=%%
+Class=%unclosed

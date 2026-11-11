@@ -1,0 +1,7 @@
+# name|class|problem code|present or absent
+Example Card Reader|SmartCardReader|10|present
+PCI Device|Other|28|present
+Example GPU|Display|43|present
+Old USB Stick|USB|0|absent
+Old Hub|USB|0|absent
+Old Volume|Volume|24|absent

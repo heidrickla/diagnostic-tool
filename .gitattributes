@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.ttf binary
+*.pdf binary
+tests/fixtures/recovery/*.img binary
+tests/fixtures/recovery/samples/* binary

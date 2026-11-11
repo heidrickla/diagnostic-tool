@@ -1,0 +1,3 @@
+COUNT	0
+R	search	none
+RERR	install	the update agent is not available

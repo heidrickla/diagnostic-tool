@@ -1,0 +1,8 @@
+# The C runtime is linked into the exe so it runs on Windows without the
+# Visual C++ redistributable. /Brepro makes the PE timestamp a content hash;
+# rustc already passes /PDBALTPATH:%_PDB%, so the PDB is named without a path.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static", "-C", "link-arg=/Brepro"]
+
+[alias]
+xtask = "run --package xtask --"

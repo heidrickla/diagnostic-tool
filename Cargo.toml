@@ -1,0 +1,114 @@
+[package]
+name = "diagnostic-tool"
+version = "1.0.0"
+edition = "2021"
+description = "Local Windows diagnostics with one consent and a dated findings PDF"
+license = "MIT"
+repository = "https://github.com/heidrickla/diagnostic-tool"
+publish = false
+rust-version = "1.98"
+build = "build.rs"
+
+# The root package and xtask both run under the plain `cargo test` and `cargo clippy` gates.
+[workspace]
+members = ["xtask"]
+default-members = [".", "xtask"]
+
+[lib]
+name = "diagnostics"
+
+[[bin]]
+name = "DiagnosticTool"
+path = "src/gui/main.rs"
+
+[features]
+default = []
+live_support = []
+
+[dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+base64 = "0.22"
+crc32fast = "1"
+flate2 = "1"
+jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto", "use_pem"] }
+printpdf = { version = "=0.12.8", default-features = false, features = ["text_layout"] }
+rand = "0.9"
+ring = "0.17"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
+rmcp = { version = "3", features = ["server", "macros", "transport-io"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net", "time", "io-util"] }
+windows-sys = { version = "0.61", features = [
+    "Wdk_Foundation",
+    "Wdk_Storage_FileSystem",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_Properties",
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_GdiPlus",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_NetworkManagement_WiFi",
+    "Win32_Networking_WinHttp",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_Security_Cryptography_Catalog",
+    "Win32_Security_Cryptography_Sip",
+    "Win32_Security_WinTrust",
+    "Win32_Storage_FileSystem",
+    "Win32_Storage_Vhd",
+    "Win32_System_Com",
+    "Win32_System_Console",
+    "Win32_System_DataExchange",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_ErrorReporting",
+    "Win32_System_EventLog",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_JobObjects",
+    "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_Performance",
+    "Win32_System_Power",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
+    "Win32_System_Services",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_System_Time",
+    "Win32_UI_Accessibility",
+    "Win32_UI_Controls",
+    "Win32_UI_Controls_Dialogs",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+embed-resource = "3"
+
+[dev-dependencies]
+rand08 = { package = "rand", version = "0.8" }
+rcgen = "=0.14.10"
+rmcp = { version = "3", default-features = false, features = ["client", "transport-io"] }
+rsa = { version = "0.9", features = ["pem"] }
+tower = { version = "0.5", features = ["util"] }
+
+# panic stays unwind: a worker thread that panics must not take the GUI down.
+[profile.release]
+lto = true
+codegen-units = 1
+incremental = false
+panic = "unwind"

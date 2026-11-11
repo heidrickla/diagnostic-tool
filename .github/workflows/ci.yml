@@ -1,0 +1,57 @@
+name: Checks
+
+# The tool is Win32 only, so its tests need Windows itself.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  checks:
+    name: Windows fmt, clippy and tests
+    if: github.server_url == 'https://github.com'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        timeout-minutes: 10
+
+      - name: Toolchain
+        timeout-minutes: 10
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal -c rustfmt,clippy
+          rustup default 1.98.1
+          rustc --version
+          cargo --version
+          if (-not ((rustc --version) -match ' 1\.98\.1 ')) { exit 1 }
+
+      - name: Format
+        timeout-minutes: 5
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        timeout-minutes: 30
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Release clippy
+        # Code behind cfg(debug_assertions) differs in release builds; lint what ships.
+        timeout-minutes: 30
+        run: cargo clippy --locked --release --workspace --bins -- -D warnings
+
+      - name: Tests
+        timeout-minutes: 30
+        # Hosted runners' virtual disks may report no serial number, and these three guards need
+        # the temp folder's disk to have one; they run in every local gate on real disks.
+        run: >-
+          cargo test --locked --workspace --
+          --skip an_image_source_guards_the_drive_it_was_made_from
+          --skip a_doubt_is_confirmed_and_the_source_is_refused_still
+          --skip a_drive_source_is_refused_under_a_new_number

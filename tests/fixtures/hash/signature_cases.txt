@@ -1,0 +1,19 @@
+# embedded check, then catalog check; each is - (did not run), a status in hex, or status:signer
+# Normal readings.
+0:Example Corp / - => signed embedded Example Corp
+0x800B0100 / 0:Microsoft Windows => signed catalog Microsoft Windows
+0x800B0100 / 0x800B0100 => unsigned
+0x800B0003 / - => unsigned
+# Invalid signatures outrank an absent one and keep the signer when it was readable.
+0x80096010:Example Corp / 0x800B0100 => invalid Example Corp the file was changed after it was signed (0x80096010)
+0x800B0109 / 0x800B0100 => invalid - the certificate chain ends at an untrusted root (0x800B0109)
+0x800B0101:Old Corp / - => invalid Old Corp the signing certificate has expired (0x800B0101)
+0x800B0100 / 0x800B010C:Cat Corp => invalid Cat Corp the signing certificate was revoked (0x800B010C)
+# A valid catalog beats an invalid embedded signature.
+0x80096010 / 0:Microsoft Windows => signed catalog Microsoft Windows
+# Partial and unavailable readings.
+0x80070005 / 0x80070005 => unavailable access denied
+0x80070020 / - => unavailable the file is in use
+- / - => unavailable the signature check did not run
+# An unknown status is reported with its code, never as healthy.
+0x80091234 / - => invalid - verification failed (0x80091234)

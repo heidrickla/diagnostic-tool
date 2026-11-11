@@ -1,0 +1,9 @@
+[Version]
+Signature=$Windows NT$
+Class=Net
+Provider=%Vendor%
+CatalogFile.NTamd64=%Cat%
+DriverVer=01/02/2022,1.2.3.4
+[Strings.0409]
+Vendor="Example Net Ltd"
+Cat="exnet.cat"
