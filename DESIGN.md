@@ -37,6 +37,7 @@ The user's path is: double-click, read one start screen, choose Start, keep work
 | `src/inventory_view.rs` | plain-language hardware lines from the inventory fields |
 | `src/report.rs`, `src/pdf_writer.rs` | the report's content as blocks, rendered to an A4 PDF |
 | `src/clock.rs` | local time stamps for the report and its file name |
+| `src/gui/screenshots.rs`, `src/gui/screenshot_data.rs`, `src/live.rs` | the debug build's screenshot mode for the README: made-up readings through the real parsers, windows on a hidden desktop captured with PrintWindow at 144 DPI, and the switch that makes every reader of this PC panic while it runs |
 | `src/protocol.rs`, `src/support_transport.rs`, `src/support_client.rs`, `src/operator_tools.rs`, `src/remote_policy.rs` | remote support, off by default |
 
 ## Data recovery

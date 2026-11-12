@@ -681,7 +681,7 @@ impl App {
             bottom: layout.client_h,
         };
         unsafe {
-            AdjustWindowRectExForDpi(&mut frame, STYLE, 0, EX_STYLE, dpi);
+            AdjustWindowRectExForDpi(&mut frame, STYLE, 0, EX_STYLE, ui::frame_dpi(self.hwnd));
             SetWindowPos(
                 self.hwnd,
                 std::ptr::null_mut(),
@@ -695,37 +695,41 @@ impl App {
     }
 
     fn hardware_dialog(&self) -> Dialog {
-        let fields = self.session.inventory();
-        let pairs = |lines: Vec<String>| -> Vec<Item> {
-            lines
-                .into_iter()
-                .map(|line| match line.split_once(": ") {
-                    Some((key, value)) => Item::Pair(key.into(), value.into()),
-                    None => Item::Para(line),
-                })
-                .collect()
-        };
-        let items = pairs(inventory_view::summary(fields));
-        let mut sections = vec![Section {
-            heading: None,
-            items,
-        }];
-        let parts = inventory_view::module_details(fields);
-        if !parts.is_empty() {
-            sections.push(Section {
-                heading: Some("Memory modules".into()),
-                items: pairs(parts),
-            });
-        }
-        Dialog {
-            window_title: "Hardware - Diagnostic Tool".into(),
-            heading: "Hardware at a glance".into(),
-            intro: "Reported by Windows. Before ordering parts, check the power supply, case size, connectors, cooling and compatibility by hand. Serial numbers are not collected.".into(),
-            sections,
-            accept: "Done".into(),
-            decline: None,
-            copy: Some("Copy all".into()),
-        }
+        hardware_dialog(self.session.inventory())
+    }
+}
+
+/// The hardware view of the inventory check's fields.
+pub fn hardware_dialog(fields: &[(String, String)]) -> Dialog {
+    let pairs = |lines: Vec<String>| -> Vec<Item> {
+        lines
+            .into_iter()
+            .map(|line| match line.split_once(": ") {
+                Some((key, value)) => Item::Pair(key.into(), value.into()),
+                None => Item::Para(line),
+            })
+            .collect()
+    };
+    let items = pairs(inventory_view::summary(fields));
+    let mut sections = vec![Section {
+        heading: None,
+        items,
+    }];
+    let parts = inventory_view::module_details(fields);
+    if !parts.is_empty() {
+        sections.push(Section {
+            heading: Some("Memory modules".into()),
+            items: pairs(parts),
+        });
+    }
+    Dialog {
+        window_title: "Hardware - Diagnostic Tool".into(),
+        heading: "Hardware at a glance".into(),
+        intro: "Reported by Windows. Before ordering parts, check the power supply, case size, connectors, cooling and compatibility by hand. Serial numbers are not collected.".into(),
+        sections,
+        accept: "Done".into(),
+        decline: None,
+        copy: Some("Copy all".into()),
     }
 }
 
@@ -1032,6 +1036,25 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
 
 /// Creates the status window and starts the session. Returns the window handle.
 pub fn open() -> Option<HWND> {
+    let hwnd = create()?;
+    // A record that cannot be made leaves the report saying no repair was run, as before.
+    let _ = change_record::start_for_this_process();
+    let session = Session::new(Instant::now(), SESSION_TIME, remote::remote_enabled());
+    start(hwnd, session, Saved::NotStarted, start_update_check());
+    Some(hwnd)
+}
+
+/// The status window over a session that has ended, with its report saved at `report` and
+/// no record or update check of its own, for the screenshot mode.
+#[cfg(debug_assertions)]
+pub fn open_finished(session: Session, report: PathBuf) -> Option<HWND> {
+    let hwnd = create()?;
+    start(hwnd, session, Saved::Done(report), Update::Off);
+    Some(hwnd)
+}
+
+/// Registers the class and creates the window, styled and still hidden.
+fn create() -> Option<HWND> {
     let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
     let name = wide(CLASS);
     let class = WNDCLASSW {
@@ -1069,9 +1092,11 @@ pub fn open() -> Option<HWND> {
         return None;
     }
     ui::style_frame(hwnd);
-    // A record that cannot be made leaves the report saying no repair was run, as before.
-    let _ = change_record::start_for_this_process();
-    let session = Session::new(Instant::now(), SESSION_TIME, remote::remote_enabled());
+    Some(hwnd)
+}
+
+/// Builds the controls over `session`, centres the window and shows it.
+fn start(hwnd: HWND, session: Session, saved: Saved, update: Update) {
     let rows: Vec<HWND> = session
         .rows()
         .iter()
@@ -1123,12 +1148,12 @@ pub fn open() -> Option<HWND> {
             hwnd,
             session,
             running: None,
-            saved: Saved::NotStarted,
+            saved,
             remote: None,
             link: Link::Off,
             activity: String::new(),
             notice: None,
-            update: start_update_check(),
+            update,
             controls,
             button_plan: Vec::new(),
             recorded: 0,
@@ -1160,7 +1185,6 @@ pub fn open() -> Option<HWND> {
         // Focus rings appear only once the keyboard is used, as in Windows' own dialogs.
         SendMessageW(hwnd, WM_CHANGEUISTATE, UIS_INITIALIZE as usize, 0);
     }
-    Some(hwnd)
 }
 
 #[cfg(test)]

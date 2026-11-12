@@ -13,6 +13,38 @@ Drive recovery. From a drive's health window the technician opens a recovery win
 
 A condition strip keeps the drive's condition in view during a rescue, and a run that is stopped, paused by heat or interrupted by a drive that stopped answering resumes from its map. Every window has a "?" button that opens a help pane for what the window does and what to watch for.
 
+## Screenshots
+
+![The start window](docs/screenshots/start.png)
+
+The start window, where the person being helped chooses Start.
+
+![The main window after the checks](docs/screenshots/main.png)
+
+The main window when the checks have finished and the report is saved.
+
+![Hardware at a glance](docs/screenshots/hardware.png)
+
+Hardware at a glance, opened with View hardware.
+
+![The Windows drive space map](docs/screenshots/drive-space.png)
+
+The Windows drive space map, listing folders and files by size.
+
+![The event viewer](docs/screenshots/events.png)
+
+The event viewer with an unexpected restart selected.
+
+![The drive window](docs/screenshots/drive.png)
+
+The drive window for a drive with media errors.
+
+![The CPU graph](docs/screenshots/cpu-graph.png)
+
+The processor and memory window on its CPU graph.
+
+The pictures show made-up readings, not those of a real PC. `cargo xtask screenshots` renders them again into `docs/screenshots/` from a debug build, without showing a window.
+
 ## Requirements
 
 | Item | Requirement |
@@ -30,6 +62,7 @@ Build from source with Rust 1.98.1, the `x86_64-pc-windows-msvc` target, Visual 
 | `cargo build --release --locked` | builds `target/release/DiagnosticTool.exe` |
 | `cargo xtask dist` | builds the reproducible release exe with its checksums into `dist/`; see [docs/RELEASE.md](docs/RELEASE.md) |
 | `cargo xtask repro` | builds the same commit twice in clean directories and compares the hashes |
+| `cargo xtask screenshots` | renders the README screenshots from made-up readings into `docs/screenshots/` |
 | `cargo run --example sample_report` | writes a synthetic report to `output/pdf/` without reading this PC |
 | `cargo fmt --all --check` | formatting gate |
 | `cargo clippy --locked --workspace --all-targets -- -D warnings` | lint gate |

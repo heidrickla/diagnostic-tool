@@ -989,6 +989,7 @@ pub fn windows_dir() -> Option<PathBuf> {
 }
 
 pub fn disk_space(drive: char) -> Result<(u64, u64), String> {
+    crate::live::reading("drive space");
     let root: Vec<u16> = format!("{drive}:\\").encode_utf16().chain([0]).collect();
     let (mut free, mut total, mut total_free) = (0u64, 0u64, 0u64);
     // SAFETY: root is NUL-terminated and the three out pointers are valid.

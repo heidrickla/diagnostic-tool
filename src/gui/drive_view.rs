@@ -229,9 +229,26 @@ pub fn check_running_text(volume: char, files: u64, bytes: u64, used: u64, bad: 
 
 impl DriveView {
     pub fn new() -> Self {
+        Self::reading(read_drives())
+    }
+
+    /// The window as if reading the drives had given `disks`, reading nothing itself: for
+    /// the screenshot mode.
+    #[cfg(debug_assertions)]
+    pub fn read_as(disks: Vec<(Disk, Details)>, elevated: Option<bool>) -> Self {
+        let (sender, receiver) = mpsc::channel();
+        let _ = sender.send(Loaded {
+            disks,
+            elevated,
+            cut_short: false,
+        });
+        Self::reading(receiver)
+    }
+
+    fn reading(load: mpsc::Receiver<Loaded>) -> Self {
         Self {
             controls: None,
-            load: Load::Reading(read_drives()),
+            load: Load::Reading(load),
             started: Instant::now(),
             current: 0,
             tab: Tab::Details,

@@ -152,8 +152,14 @@ impl Drop for EventView {
 
 impl EventView {
     fn new(preset: Preset) -> Self {
+        let mut view = Self::idle(preset);
+        view.start_read();
+        view
+    }
+
+    fn idle(preset: Preset) -> Self {
         let filter = preset.default_filter();
-        let mut view = Self {
+        Self {
             preset,
             filter,
             controls: None,
@@ -167,9 +173,17 @@ impl EventView {
             shown_notice: String::new(),
             split: None,
             dragging: None,
-        };
-        view.start_read();
-        view
+        }
+    }
+
+    /// The viewer for `check`'s events as if its reading had given `loaded`, with the loaded
+    /// row `chosen` in the details, reading nothing itself: for the screenshot mode.
+    #[cfg(debug_assertions)]
+    pub fn loaded(check: &str, loaded: Loaded, chosen: usize) -> Option<Self> {
+        let mut view = Self::idle(event_list::preset(check)?);
+        view.loaded = Some(loaded);
+        view.chosen = Some(chosen);
+        Some(view)
     }
 
     fn cancel(&self) {

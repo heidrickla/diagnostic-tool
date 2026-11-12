@@ -8,6 +8,7 @@ pub mod events;
 pub mod expanded_probes;
 pub mod handles;
 pub mod inventory_view;
+pub mod live;
 pub mod operator_tools;
 mod pdf_writer;
 pub mod protocol;

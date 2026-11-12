@@ -420,6 +420,7 @@ mod http {
     /// One HTTPS GET with no redirects, Windows' proxy settings and certificate store, and
     /// a cap on the body.
     pub fn get(url: &str, cap: usize) -> Result<Vec<u8>, String> {
+        crate::live::reading("the network");
         let (host, path) = crate::site_rules::https_parts(url)?;
         let path = if path.is_empty() { "/" } else { path };
         // SAFETY: plain WinHTTP calls on handles owned by `Handle`; every pointer passed

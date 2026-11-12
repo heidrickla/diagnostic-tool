@@ -24,6 +24,10 @@ mod remote;
 mod rescue_copy_view;
 mod rescue_image_view;
 mod restore_view;
+#[cfg(debug_assertions)]
+mod screenshot_data;
+#[cfg(debug_assertions)]
+mod screenshots;
 mod space_view;
 mod tools;
 mod toolwin;
@@ -360,7 +364,6 @@ fn run_recovery(args: &[String]) {
 }
 
 fn main() {
-    install_crash_note();
     unsafe {
         // DLLs load from System32 only, never from the folder the exe was downloaded to.
         SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
@@ -369,6 +372,13 @@ fn main() {
         CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
     }
     let args: Vec<String> = std::env::args().collect();
+    // Debug builds only: writes the README's screenshots from made-up readings. It runs
+    // before the crash note, which would write beside the reports.
+    #[cfg(debug_assertions)]
+    if args.get(1).map(String::as_str) == Some("--screenshots") {
+        std::process::exit(screenshots::run(&args[2..]));
+    }
+    install_crash_note();
     // Debug builds only: opens the recovery key sign-in window on its own.
     #[cfg(debug_assertions)]
     if args.get(1).map(String::as_str) == Some("--key-lookup-demo") {

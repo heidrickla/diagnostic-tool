@@ -269,9 +269,15 @@ impl SpaceView {
             .filter(char::is_ascii_alphabetic)
             .unwrap_or('C')
             .to_ascii_uppercase();
-        let mut view = Self {
+        let mut view = Self::idle(drive, disk_space(drive).ok());
+        view.start_scan();
+        view
+    }
+
+    fn idle(drive: char, disk: Option<(u64, u64)>) -> Self {
+        Self {
             drive,
-            disk: disk_space(drive).ok(),
+            disk,
             controls: None,
             scan: Scan::Done,
             map: None,
@@ -280,8 +286,22 @@ impl SpaceView {
             rows: Vec::new(),
             notice: None,
             clean: Clean::Idle,
+        }
+    }
+
+    /// The window for `drive` with `disk` (free, total) whose measuring gives `map` at its
+    /// first tick, reading nothing itself: for the screenshot mode.
+    #[cfg(debug_assertions)]
+    pub fn measured(drive: char, disk: (u64, u64), map: Map) -> Self {
+        let mut view = Self::idle(drive, Some(disk));
+        let (sender, result) = mpsc::channel();
+        let _ = sender.send(map);
+        view.scan = Scan::Running {
+            cancel: Arc::new(AtomicBool::new(false)),
+            progress: Arc::new(Progress::default()),
+            result,
+            started: Instant::now(),
         };
-        view.start_scan();
         view
     }
 

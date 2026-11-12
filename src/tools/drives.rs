@@ -22,6 +22,7 @@ use health::{Assessment, Disk, Health};
 
 /// The drive window's further reads of disk `number`; see `details::Details`.
 pub fn details(number: u32, bus: Option<i32>) -> details::Details {
+    crate::live::reading("a disk");
     device::read_details(number, bus)
 }
 
@@ -63,6 +64,7 @@ fn run(_: &Args) -> Result<Output, String> {
 /// Reads every disk on a worker thread; a disk whose driver hangs is reported as cut short
 /// rather than holding the tool past `deadline`.
 pub fn gather(deadline: Instant) -> Gathered {
+    crate::live::reading("the disks");
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
         let volumes = device::volumes_by_disk();

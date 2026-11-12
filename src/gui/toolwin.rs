@@ -150,14 +150,16 @@ fn relayout(hwnd: HWND) {
     unsafe { InvalidateRect(hwnd, std::ptr::null(), 1) };
 }
 
-fn outer_size(dpi: u32, (w, h): (i32, i32)) -> (i32, i32) {
+/// The outer size for a client of `(w, h)` 96-dpi pixels laid out at `dpi`, with the frame
+/// Windows draws at `frame_dpi`.
+fn outer_size(dpi: u32, frame_dpi: u32, (w, h): (i32, i32)) -> (i32, i32) {
     let mut rect = RECT {
         left: 0,
         top: 0,
         right: scale(dpi, w),
         bottom: scale(dpi, h),
     };
-    unsafe { AdjustWindowRectExForDpi(&mut rect, STYLE, 0, EX_STYLE, dpi) };
+    unsafe { AdjustWindowRectExForDpi(&mut rect, STYLE, 0, EX_STYLE, frame_dpi) };
     (rect.right - rect.left, rect.bottom - rect.top)
 }
 
@@ -414,7 +416,7 @@ pub fn open(owner: HWND, key: &str, make: impl FnOnce() -> Box<dyn Page>) {
     }
     let mut page = make();
     let dpi = ui::dpi_of(owner);
-    let (w, h) = outer_size(dpi, page.size().0);
+    let (w, h) = outer_size(dpi, ui::frame_dpi(owner), page.size().0);
     let mut owner_rect = RECT {
         left: 0,
         top: 0,
@@ -488,6 +490,12 @@ fn ends_process(closed: &str) -> bool {
 /// The window of tool `key`, if it is open.
 pub fn window_of(key: &str) -> Option<HWND> {
     OPEN.with(|o| o.borrow().get(key).map(|h| *h as HWND))
+}
+
+/// Runs a window's tick now, as its timer would, for the screenshot mode.
+#[cfg(debug_assertions)]
+pub fn tick_now(hwnd: HWND) {
+    unsafe { SendMessageW(hwnd, WM_TIMER, TIMER, 0) };
 }
 
 /// An owner-drawn surface the page paints itself: its `draw_item` is called with the
@@ -572,8 +580,8 @@ fn min_outer(hwnd: HWND) -> Option<(i32, i32)> {
             .get(&(hwnd as isize))
             .map(|page| (page.size().1, page.natural_height()))
     })?;
-    let (w, h) = outer_size(dpi, min);
-    let frame_h = outer_size(dpi, (0, 0)).1;
+    let (w, h) = outer_size(dpi, ui::frame_dpi(hwnd), min);
+    let frame_h = outer_size(dpi, ui::frame_dpi(hwnd), (0, 0)).1;
     let pane = help_pane::room(hwnd, dpi);
     Some((w + pane, min_height(h, natural.map(|n| n + frame_h))))
 }

@@ -87,6 +87,7 @@ pub fn temp_roots() -> Vec<PathBuf> {
 
 /// Finds what is safe to remove under `roots` as of `now`.
 pub fn plan_temp(roots: &[PathBuf], now: SystemTime) -> TempPlan {
+    crate::live::reading("temporary files");
     let cutoff = now.checked_sub(AGE).unwrap_or(UNIX_EPOCH);
     let deadline = Instant::now() + PLAN_TIME;
     let mut plan = TempPlan {
@@ -182,6 +183,7 @@ pub fn remove_temp(plan: &TempPlan, now: SystemTime) -> Removed {
 
 /// Bytes and items in the Recycle Bins of every drive, for the current user.
 pub fn recycle_bin() -> Result<(u64, u64), String> {
+    crate::live::reading("the Recycle Bin");
     use windows_sys::Win32::UI::Shell::{SHQueryRecycleBinW, SHQUERYRBINFO};
     let mut info = SHQUERYRBINFO {
         cbSize: std::mem::size_of::<SHQUERYRBINFO>() as u32,

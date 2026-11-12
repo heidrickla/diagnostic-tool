@@ -194,13 +194,34 @@ pub fn fonts(dpi: u32) -> Fonts {
 
 pub fn dpi_of(hwnd: HWND) -> u32 {
     #[cfg(debug_assertions)]
-    if let Some(dpi) = test_dpi() {
+    if let Some(dpi) = forced_dpi().or_else(test_dpi) {
         return dpi;
     }
+    frame_dpi(hwnd)
+}
+
+/// The DPI Windows draws a window's frame at, from the monitor it is on; a debug build's
+/// test DPI lays out the content only, so sizing the frame needs this one.
+pub fn frame_dpi(hwnd: HWND) -> u32 {
     match unsafe { GetDpiForWindow(hwnd) } {
         0 => 96,
         dpi => dpi,
     }
+}
+
+/// The DPI the screenshot mode lays every window out at, whatever the monitor's; 0 is none.
+#[cfg(debug_assertions)]
+static FORCED_DPI: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Lays every window out at `dpi` from now on, for the screenshot mode.
+#[cfg(debug_assertions)]
+pub fn force_dpi(dpi: u32) {
+    FORCED_DPI.store(dpi, Ordering::SeqCst);
+}
+
+#[cfg(debug_assertions)]
+fn forced_dpi() -> Option<u32> {
+    Some(FORCED_DPI.load(Ordering::SeqCst)).filter(|dpi| *dpi > 0)
 }
 
 /// A debug build lays its windows out at DIAGTOOL_TEST_DPI (96 to 288) when it is set, so

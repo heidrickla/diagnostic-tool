@@ -161,6 +161,7 @@ struct Shared {
 /// Maps everything under `root` with `threads` workers sharing one queue. Setting `cancel`
 /// ends the scan early; folders not yet listed are marked unfinished.
 pub fn scan(root: &Path, threads: usize, cancel: &AtomicBool, progress: &Progress) -> Map {
+    crate::live::reading("the file system");
     let started = Instant::now();
     let name = root.to_string_lossy().trim_end_matches('\\').to_string();
     let shared = Mutex::new(Shared {

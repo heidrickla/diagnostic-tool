@@ -241,6 +241,7 @@ pub fn check_time(id: &str) -> Duration {
 
 /// Runs one registered check under its deadline, the output cap and job cleanup.
 pub fn run_check(id: &str, cancelled: Arc<AtomicBool>) -> Outcome {
+    crate::live::reading("a check");
     let deadline = Instant::now() + check_time(id);
     match id {
         "disk.free" => return expanded_probes::drive_space_outcome(expanded_probes::system_drive()),

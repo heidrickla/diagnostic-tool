@@ -329,7 +329,8 @@ fn layout(hwnd: HWND, origin: Option<(i32, i32)>) {
         right: width,
         bottom: height,
     };
-    unsafe { AdjustWindowRectExForDpi(&mut frame, STYLE, 0, EX_STYLE, dpi) };
+    let frame_dpi = ui::frame_dpi(hwnd);
+    unsafe { AdjustWindowRectExForDpi(&mut frame, STYLE, 0, EX_STYLE, frame_dpi) };
     let (fw, fh) = (frame.right - frame.left, frame.bottom - frame.top);
     let (x, y) = origin.unwrap_or_else(|| {
         let mut current = RECT {

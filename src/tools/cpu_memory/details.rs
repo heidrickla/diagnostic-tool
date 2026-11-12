@@ -95,6 +95,7 @@ pub struct Details {
 
 /// Reads the parts `options` asks for. Nothing here needs administrator rights.
 pub fn details(options: &DetailsOptions) -> Details {
+    crate::live::reading("the processor, memory and firmware tables");
     let mut unread = Vec::new();
     let table = if options.processor || options.memory || options.board {
         match smbios::read() {

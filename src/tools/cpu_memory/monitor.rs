@@ -286,6 +286,7 @@ impl Totals {
 // ---- readings ----------------------------------------------------------------------------
 
 pub fn logical_processors() -> u32 {
+    crate::live::reading("the processor count");
     // SAFETY: a plain query; 0xFFFF means all processor groups.
     unsafe { windows_sys::Win32::System::Threading::GetActiveProcessorCount(0xFFFF) }.max(1)
 }
@@ -592,6 +593,7 @@ pub fn run(
     on_event: &mut dyn FnMut(Event),
     cancel: &AtomicBool,
 ) -> Result<Summary, String> {
+    crate::live::reading("the performance counters");
     options.check()?;
     let series = options.series;
     let pdh = Pdh::open(&series);

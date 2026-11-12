@@ -655,6 +655,7 @@ fn read_with(
     deadline: Instant,
     cancelled: &AtomicBool,
 ) -> Result<(Vec<WithData>, Vec<LogRead>), ReadError> {
+    crate::live::reading("the event log");
     let filter = xpath(query).map_err(ReadError::Invalid)?;
     if let Some(log) = query.logs.iter().find(|log| !plain_name(log, true)) {
         return Err(ReadError::Invalid(format!("not a log name: {log}")));

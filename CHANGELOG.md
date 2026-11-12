@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.2, 2026-11-11
+
+### Documents
+
+- The README shows seven screenshots: the start screen, the main window after a check, hardware at a glance, the drive space map, the event viewer, the drive window and the processor graph.
+- `cargo xtask screenshots` makes them again from a debug build. The windows open on a hidden desktop with made-up readings, and the run fails, naming the reader, if any window reads this PC.
+
 ## 1.0.1, 2026-11-11
 
 ### Crash dumps

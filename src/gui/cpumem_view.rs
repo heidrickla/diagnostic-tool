@@ -321,15 +321,55 @@ fn in_use_percent(s: &Sample) -> Option<f64> {
 
 impl CpuMemView {
     pub fn new(tab: Tab, per_processor: bool) -> Self {
+        Self::reading(
+            tab,
+            per_processor,
+            read_details(),
+            start_sampler(),
+            monitor::logical_processors(),
+        )
+    }
+
+    /// The window at `tab` as if the details engine had given `found` and the sampler
+    /// `events`, reading nothing itself: for the screenshot mode.
+    #[cfg(debug_assertions)]
+    pub fn read_as(tab: Tab, found: Details, events: Vec<Event>) -> Self {
+        let (sender, load) = mpsc::channel();
+        let _ = sender.send(found);
+        let (sender, sampled) = mpsc::channel();
+        let mut processors = 1;
+        for event in events {
+            if let Event::Started {
+                logical_processors, ..
+            } = &event
+            {
+                processors = *logical_processors;
+            }
+            let _ = sender.send(event);
+        }
+        let sampler = Sampler {
+            cancel: Arc::new(AtomicBool::new(false)),
+            events: sampled,
+        };
+        Self::reading(tab, false, load, sampler, processors)
+    }
+
+    fn reading(
+        tab: Tab,
+        per_processor: bool,
+        load: mpsc::Receiver<Details>,
+        sampler: Sampler,
+        processors: u32,
+    ) -> Self {
         Self {
             controls: None,
-            load: Load::Reading(read_details()),
+            load: Load::Reading(load),
             tab,
             lines: Vec::new(),
-            sampler: start_sampler(),
+            sampler,
             history: History::new(monitor::HISTORY),
             frozen: None,
-            processors: monitor::logical_processors(),
+            processors,
             base_mhz: None,
             unavailable: Vec::new(),
             range: 0,

@@ -37,6 +37,7 @@ pub fn use_file(path: PathBuf) -> bool {
 /// Starts this window's record: an empty file named by process id. Entries are only ever
 /// added to a file that exists, so a record the window removed on closing is not made again.
 pub fn start_for_this_process() -> Result<(), String> {
+    crate::live::reading("the change record");
     let path = for_this_process();
     std::fs::write(&path, b"")
         .map_err(|e| format!("{} could not be made ({e})", path.display()))?;

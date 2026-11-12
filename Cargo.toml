@@ -1,6 +1,6 @@
 [package]
 name = "diagnostic-tool"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 description = "Local Windows diagnostics with one consent and a dated findings PDF"
 license = "MIT"
@@ -32,6 +32,8 @@ crc32fast = "1"
 flate2 = "1"
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto", "use_pem"] }
 printpdf = { version = "=0.12.8", default-features = false, features = ["text_layout"] }
+# Writes the README screenshots; only the debug-build screenshot mode uses it.
+png = "0.18"
 rand = "0.9"
 ring = "0.17"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
@@ -62,6 +64,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_Security_WinTrust",
     "Win32_Storage_FileSystem",
     "Win32_Storage_Vhd",
+    "Win32_Storage_Xps",
     "Win32_System_Com",
     "Win32_System_Console",
     "Win32_System_DataExchange",
@@ -81,6 +84,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_ProcessStatus",
     "Win32_System_Registry",
     "Win32_System_Services",
+    "Win32_System_StationsAndDesktops",
     "Win32_System_SystemInformation",
     "Win32_System_SystemServices",
     "Win32_System_Threading",

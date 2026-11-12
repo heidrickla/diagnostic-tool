@@ -195,6 +195,7 @@ pub fn run_process_limited(
     cancelled: Arc<AtomicBool>,
     limit: usize,
 ) -> Result<String, RunError> {
+    crate::live::reading("a PowerShell script");
     let limit = limit.min(1 << 20);
     let job = Job::new().map_err(|_| RunError::Spawn)?;
     let mut child = Command::new(powershell_path().map_err(|_| RunError::Spawn)?)

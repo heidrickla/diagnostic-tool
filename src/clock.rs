@@ -83,8 +83,10 @@ pub fn local(time: SystemTime) -> Stamp {
     };
     let mut utc: SYSTEMTIME = unsafe { std::mem::zeroed() };
     let mut local: SYSTEMTIME = unsafe { std::mem::zeroed() };
+    // This PC's time zone is one of its readings: while those are forbidden, times are UTC.
     let converted = unsafe {
         FileTimeToSystemTime(&file, &mut utc) != 0
+            && !crate::live::forbidden()
             && SystemTimeToTzSpecificLocalTime(std::ptr::null(), &utc, &mut local) != 0
     };
     if !converted {

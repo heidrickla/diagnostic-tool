@@ -11,7 +11,8 @@ use std::process::ExitCode;
 const USAGE: &str = "usage: cargo xtask <command>
   dist [--allow-dirty]    build dist/DiagnosticTool-<version>.exe, SHA256SUMS and build-info.txt
   repro                   build HEAD in two directories and compare the hashes
-  icon [--preview <dir>]  render assets/app.ico";
+  icon [--preview <dir>]  render assets/app.ico
+  screenshots [<dir>]     render the README screenshots into docs/screenshots or <dir>";
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -21,6 +22,7 @@ fn main() -> ExitCode {
         Some("dist") => dist_command(&args[1..]),
         Some("repro") if args.len() == 1 => dist::repro(),
         Some("icon") => icon_command(&args[1..]),
+        Some("screenshots") => screenshots_command(&args[1..]),
         _ => Err(USAGE.into()),
     };
     match outcome {
@@ -82,6 +84,34 @@ fn icon_command(args: &[String]) -> Result<()> {
             }
         }
         println!("previews in {}", dir.display());
+    }
+    Ok(())
+}
+
+/// Builds the debug binary and runs its screenshot mode, which renders made-up readings
+/// on a hidden desktop; the debug build is the only one that has the mode.
+fn screenshots_command(args: &[String]) -> Result<()> {
+    let root = repo_root();
+    let dir = match args {
+        [] => root.join("docs").join("screenshots"),
+        [dir] => std::env::current_dir()?.join(dir),
+        _ => return Err(USAGE.into()),
+    };
+    let status = std::process::Command::new(std::env::var_os("CARGO").unwrap_or("cargo".into()))
+        .current_dir(&root)
+        .args([
+            "run",
+            "--locked",
+            "--quiet",
+            "--bin",
+            "DiagnosticTool",
+            "--",
+            "--screenshots",
+        ])
+        .arg(&dir)
+        .status()?;
+    if !status.success() {
+        return Err(format!("the screenshot mode ended with {status}").into());
     }
     Ok(())
 }
