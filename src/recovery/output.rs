@@ -379,6 +379,7 @@ pub use super::writer::{write_report_file, ReportFile, REPORT_TAG};
 /// An image that cannot be opened, or whose map cannot be read, protects by refusing every
 /// output: what it was made from is not known.
 pub fn source_disk(choice: &SourceChoice) -> Protected {
+    crate::live::reading("the source drive's identity");
     match choice {
         SourceChoice::Disk(n) => drive_of(*n),
         SourceChoice::Image(path) => match super::ImageFile::open(path) {

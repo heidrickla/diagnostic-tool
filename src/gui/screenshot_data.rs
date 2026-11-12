@@ -8,6 +8,16 @@ use diagnostics::checks::{self, Finding, Outcome};
 use diagnostics::event_list::{self, Loaded, PartRead};
 use diagnostics::events::{self, CategoryRead, Event, LogRead, Query, WithData, HARDWARE};
 use diagnostics::expanded_probes::{self, DriveSpace};
+use diagnostics::recovery::candidates::{self, Capture, Format, Kind, Version};
+use diagnostics::recovery::carve::{Carved, Kind as CarveKind};
+use diagnostics::recovery::dest::Protected;
+use diagnostics::recovery::events::{self as rescue_events, Event as RescueEvent};
+use diagnostics::recovery::fs::{
+    Data, Found, FsKind, Listing, Modified, Origin, Part, Place, Run, State, Volume as FsVolume,
+    Why,
+};
+use diagnostics::recovery::health_log::{Counts, HealthLog, Reading};
+use diagnostics::recovery::image::{Map as RescueMap, Status};
 use diagnostics::session::Session;
 use diagnostics::tools::cpu_memory::cpuid::{self, FeatureGroup};
 use diagnostics::tools::cpu_memory::details::{Board, Memory, Processor};
@@ -19,9 +29,9 @@ use diagnostics::tools::drives::details::{
     Details, Layout, Link, NvmeIdentify, Partition, SelfTest, SelfTestLog, Style, Volume,
 };
 use diagnostics::tools::drives::health::{
-    Disk, Health, Identity, NvmeHealth, Temperature, BUS_NVME,
+    Attribute, Disk, Health, Identity, NvmeHealth, Temperature, BUS_NVME, BUS_SATA,
 };
-use diagnostics::tools::drives::Gathered;
+use diagnostics::tools::drives::{bytes_text, Gathered};
 use diagnostics::tools::space_map::{File, Folder, Map};
 
 /// The moment the made-up checks ran, 2026-11-01, so their wording never depends on today.
@@ -770,4 +780,615 @@ pub fn cpu_samples() -> Vec<Sampled> {
         }));
     }
     events
+}
+
+// ---- the data recovery windows ----------------------------------------------------------
+
+/// The drive the recovery windows read: disk 4, a failing 1 TB SATA drive with one volume.
+pub const RECOVERY_DISK: u32 = 4;
+const RECOVERY_SIZE: u64 = 1_000_204_886_016;
+const RECOVERY_LETTER: char = 'F';
+const RECOVERY_MODEL: &str = "Example 1 TB SATA drive";
+/// Where the rescue and the recovered files go, on another drive.
+const RECOVERED: &str = r"E:\Recovered";
+
+/// The source as an opened disk describes itself.
+fn recovery_about() -> String {
+    format!(
+        "Disk {RECOVERY_DISK}, {RECOVERY_MODEL}, {}",
+        diagnostics::tools::drives::size_text(RECOVERY_SIZE)
+    )
+}
+
+fn attribute(id: u8, current: u8, raw: u64) -> Attribute {
+    let bytes = raw.to_le_bytes();
+    Attribute {
+        id,
+        current,
+        worst: current,
+        raw: [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]],
+    }
+}
+
+/// The drive's SMART counts and temperature at one reading.
+#[derive(Clone, Copy)]
+struct Counted {
+    reallocated: u64,
+    pending: u64,
+    uncorrectable: u64,
+    celsius: i32,
+}
+
+/// The counts as the rescue began and as they are now.
+const AT_START: Counted = Counted {
+    reallocated: 121,
+    pending: 40,
+    uncorrectable: 9,
+    celsius: 39,
+};
+const NOW: Counted = Counted {
+    reallocated: 148,
+    pending: 32,
+    uncorrectable: 12,
+    celsius: 44,
+};
+
+/// The failing drive as the recovery window reads it when it opens.
+pub fn recovery_disk() -> Disk {
+    Disk {
+        number: RECOVERY_DISK,
+        identity: Ok(Identity {
+            vendor: String::new(),
+            model: RECOVERY_MODEL.into(),
+            firmware: "EX01".into(),
+            bus: BUS_SATA,
+            removable: false,
+        }),
+        size: Ok(RECOVERY_SIZE),
+        solid_state: Ok(false),
+        volumes: vec![RECOVERY_LETTER],
+        temperature: Ok(Temperature {
+            current: Some(NOW.celsius as i16),
+            warning: Some(55),
+            critical: Some(60),
+        }),
+        predicts_failure: Ok(true),
+        health: Health::Ata(vec![
+            attribute(5, 88, NOW.reallocated),
+            attribute(9, 74, 23_412),
+            attribute(194, NOW.celsius as u8, NOW.celsius as u64),
+            attribute(197, 100, NOW.pending),
+            attribute(198, 100, NOW.uncorrectable),
+        ]),
+    }
+}
+
+/// A wall-clock time `seconds` before now, as the event and health logs write it.
+fn logged_at(seconds: u64) -> String {
+    let s = diagnostics::clock::local(SystemTime::now() - Duration::from_secs(seconds));
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        s.year, s.month, s.day, s.hour, s.minute, s.second
+    )
+}
+
+fn reading(seconds_ago: u64, counts: Counted, pos: u64, bad: u64) -> Reading {
+    Reading {
+        time: logged_at(seconds_ago),
+        counts: Counts::Ata {
+            reallocated: Some(counts.reallocated),
+            pending: Some(counts.pending),
+            uncorrectable: Some(counts.uncorrectable),
+        },
+        celsius: Some(counts.celsius),
+        pos,
+        bad,
+    }
+}
+
+/// An event of the rescue's log as a line of it, `seconds` before now.
+fn log_line(seconds_ago: u64, event: &RescueEvent) -> String {
+    let mut line = serde_json::to_value(event).expect("an event is JSON");
+    line["time"] = logged_at(seconds_ago).into();
+    line.to_string()
+}
+
+/// The counts `share` of the way from the start of the run to now, with a little wobble.
+fn counts_between(share: f64, wobble: i64) -> Counted {
+    let between = |from: u64, to: u64| {
+        let value = from as f64 + (to as f64 - from as f64) * share;
+        (value.round() as i64 + wobble).max(0) as u64
+    };
+    Counted {
+        reallocated: between(AT_START.reallocated, NOW.reallocated),
+        pending: between(AT_START.pending, NOW.pending),
+        uncorrectable: between(AT_START.uncorrectable, NOW.uncorrectable).min(NOW.uncorrectable),
+        celsius: AT_START.celsius + ((NOW.celsius - AT_START.celsius) as f64 * share) as i32,
+    }
+}
+
+const GIB: u64 = 1 << 30;
+const MIB: u64 = 1 << 20;
+
+/// Marks `len` bytes at `at` with `status`, `at` and `len` in whole sectors.
+fn mark(map: &mut RescueMap, at: u64, len: u64, status: Status) {
+    map.set(at / 4096 * 4096, len.max(4096) / 4096 * 4096, status);
+}
+
+/// The rescue's map with everything before `end` read in the first pass: its failed areas,
+/// the areas it skipped after them and a few bad sectors, the rest not read yet.
+fn rescue_map(end: u64) -> RescueMap {
+    let mut map = RescueMap::new(RECOVERY_SIZE);
+    mark(&mut map, 0, end, Status::Rescued);
+    // (start, failed, skipped after it), in GiB.
+    let failed: [(f64, f64, f64); 7] = [
+        (88.0, 2.4, 0.0),
+        (212.0, 1.2, 6.0),
+        (233.0, 0.9, 0.0),
+        (305.0, 3.6, 4.0),
+        (446.0, 1.1, 0.0),
+        (498.0, 2.2, 8.0),
+        (577.0, 0.7, 0.0),
+    ];
+    for (start, len, skipped) in failed {
+        let at = (start * GIB as f64) as u64;
+        let failed_len = (len * GIB as f64) as u64;
+        if at + failed_len + (skipped * GIB as f64) as u64 > end {
+            continue;
+        }
+        mark(&mut map, at, failed_len, Status::NonTrimmed);
+        mark(
+            &mut map,
+            at + failed_len,
+            (skipped * GIB as f64) as u64,
+            Status::Untried,
+        );
+    }
+    // Single sectors that failed alone are bad already.
+    for (gib, sectors) in [
+        (141.0, 12),
+        (142.5, 30),
+        (143.2, 8),
+        (389.0, 20),
+        (390.1, 44),
+    ] {
+        if ((gib * GIB as f64) as u64) < end {
+            for i in 0..sectors {
+                mark(
+                    &mut map,
+                    (gib * GIB as f64) as u64 + i * 7 * MIB,
+                    4096,
+                    Status::Bad,
+                );
+            }
+        }
+    }
+    map.current_pos = end;
+    map
+}
+
+/// The rescue's pace: now, and on average this run.
+const RESCUE_RATE: f64 = 41_300_000.0;
+const RESCUE_AVERAGE: f64 = 38_900_000.0;
+
+/// The rescue image of disk 4 partway through its first pass, resumed from where an earlier
+/// run stopped. Its event log and health readings are handed to the condition strip.
+pub fn rescue_run() -> crate::rescue_image_view::MidRun {
+    let before = rescue_map(260 * GIB);
+    let map = rescue_map(620 * GIB);
+    let gained = map
+        .count(Status::Rescued)
+        .saturating_sub(before.count(Status::Rescued));
+    let running_for = (gained as f64 / RESCUE_AVERAGE) as u64;
+    let first = reading(running_for, AT_START, before.current_pos, before.failed());
+    let latest = reading(0, NOW, map.current_pos, map.failed());
+    let mut log = HealthLog::start(
+        PathBuf::from(RECOVERED).join("health.csv"),
+        Err(std::io::Error::other("the screenshots write no log")),
+    );
+    log.add(first);
+    log.add(latest.clone());
+    // The run's event log: its start, a health reading every ten minutes, its speed every
+    // five, and the one time the drive stopped answering.
+    let mut lines = vec![log_line(
+        running_for,
+        &rescue_events::started(
+            "rescue image",
+            Some(RECOVERY_DISK),
+            None,
+            serde_json::json!({}),
+        ),
+    )];
+    for minutes in (0..=running_for / 300).rev().map(|n| n * 5) {
+        let ago = minutes * 60;
+        let share = 1.0 - ago as f64 / running_for as f64;
+        if minutes % 10 == 0 {
+            let counts = counts_between(share, [0, 1, -1, 0, 2, -2][(minutes / 10 % 6) as usize]);
+            let health = reading(ago, counts, 0, 0).event();
+            lines.push(log_line(ago, &health));
+        }
+        let wave = (minutes as f64 * 0.7).sin() * 4_500_000.0;
+        let dip = if (48..=56).contains(&minutes) {
+            0.4
+        } else {
+            1.0
+        };
+        lines.push(log_line(
+            ago,
+            &RescueEvent::Progress {
+                bytes_per_second: ((RESCUE_RATE + wave) * dip) as u64,
+            },
+        ));
+    }
+    lines.push(log_line(
+        52 * 60,
+        &RescueEvent::DriveGone {
+            seen: "a read failed with error 1167, the device is not connected".into(),
+            code: Some(1167),
+        },
+    ));
+    crate::condition_strip::logged(RECOVERY_DISK, &lines);
+    crate::rescue_image_view::MidRun {
+        about: recovery_about(),
+        folder: PathBuf::from(RECOVERED),
+        before,
+        map,
+        health: log.live_text(),
+        drive: Some(latest),
+        rate: RESCUE_RATE,
+        average: RESCUE_AVERAGE,
+        running_for: Duration::from_secs(running_for),
+    }
+}
+
+// ---- recovering files ------------------------------------------------------------------
+
+/// What file recovery reads: the disk, which protects itself from being written.
+pub fn recovery_source() -> (String, Protected) {
+    (recovery_about(), Protected::disk(RECOVERY_DISK))
+}
+
+const VOLUME_START: u64 = 117 * MIB;
+
+/// The drive's volumes the recover window finds: the large Windows volume first, which
+/// is the one read, then the system and recovery partitions.
+pub fn recovery_volumes() -> Vec<FsVolume> {
+    let volume = |kind, start, len, n| FsVolume {
+        kind,
+        start,
+        len,
+        origin: Origin::Gpt(n),
+        claims: Vec::new(),
+    };
+    vec![
+        volume(
+            FsKind::Ntfs,
+            VOLUME_START,
+            RECOVERY_SIZE - VOLUME_START - 750 * MIB,
+            3,
+        ),
+        volume(FsKind::Fat32, MIB, 100 * MIB, 1),
+        volume(FsKind::Ntfs, RECOVERY_SIZE - 750 * MIB, 749 * MIB, 4),
+    ]
+}
+
+fn found(
+    path: &str,
+    size: u64,
+    (year, month, day): (u16, u8, u8),
+    deleted: bool,
+    state: State,
+) -> Found {
+    let (folder, name) = path.rsplit_once('\\').unwrap_or(("", path));
+    let folder = folder
+        .split('\\')
+        .filter(|part| !part.is_empty())
+        .map(|part| match part.strip_suffix('*') {
+            Some(name) => Part {
+                name: name.into(),
+                deleted: true,
+            },
+            None => Part {
+                name: part.into(),
+                deleted: false,
+            },
+        })
+        .collect();
+    Found {
+        name: name.into(),
+        folder,
+        size,
+        modified: Some(Modified::Local {
+            year,
+            month,
+            day,
+            hour: 9 + (size % 9) as u8,
+            minute: (size % 60) as u8,
+        }),
+        deleted,
+        state,
+        data: Data::Runs(vec![Run {
+            place: Place::At(VOLUME_START + 40 * GIB + size % (300 * GIB)),
+            len: size,
+        }]),
+        damaged: false,
+        note: None,
+        why: None,
+    }
+}
+
+/// The Windows volume's files: deleted ones, some whole, some damaged by the drive's read
+/// errors and some overwritten since, then the files still in use.
+pub fn recovery_listing() -> Listing {
+    let partly = |used, of| State::Partly { used, of };
+    let mut files = vec![
+        found(
+            r"\Users\alex\Pictures\Holiday 2025\Holiday-2025-001.jpg",
+            4_212_334,
+            (2025, 8, 14),
+            true,
+            State::Intact,
+        ),
+        found(
+            r"\Users\alex\Pictures\Holiday 2025\Holiday-2025-002.jpg",
+            3_980_112,
+            (2025, 8, 14),
+            true,
+            State::Intact,
+        ),
+        Found {
+            damaged: true,
+            ..found(
+                r"\Users\alex\Pictures\Holiday 2025\Holiday-2025-003.jpg",
+                4_506_871,
+                (2025, 8, 14),
+                true,
+                State::Intact,
+            )
+        },
+        found(
+            r"\Users\alex\Pictures\Holiday 2025\Holiday-2025-004.jpg",
+            4_120_448,
+            (2025, 8, 15),
+            true,
+            partly(3, 10),
+        ),
+        found(
+            r"\Users\alex\Pictures\Holiday 2025\Holiday-2025-005.jpg",
+            3_877_019,
+            (2025, 8, 15),
+            true,
+            State::Overwritten,
+        ),
+        found(
+            r"\Users\alex\Documents\Taxes-2024.pdf",
+            1_284_552,
+            (2025, 4, 2),
+            true,
+            State::Intact,
+        ),
+        Found {
+            why: Some(Why::Mismatch(None)),
+            ..found(
+                r"\Users\alex\Documents\Taxes-2023.pdf",
+                1_190_310,
+                (2024, 4, 11),
+                true,
+                State::Overwritten,
+            )
+        },
+        found(
+            r"\Users\alex\Documents\Budget-2025.xlsx",
+            88_412,
+            (2025, 1, 6),
+            true,
+            State::Intact,
+        ),
+        found(
+            r"\Users\alex\Documents\Letters*\Letter-to-school.docx",
+            24_118,
+            (2025, 9, 3),
+            true,
+            State::Intact,
+        ),
+        found(
+            r"\Users\alex\Videos\Birthday-party.mp4",
+            1_402_331_904,
+            (2025, 11, 22),
+            true,
+            partly(12, 100),
+        ),
+        Found {
+            damaged: true,
+            ..found(
+                r"\Users\alex\Pictures\Camera Roll\IMG-2041.jpg",
+                3_311_904,
+                (2026, 6, 30),
+                true,
+                State::Intact,
+            )
+        },
+        found(
+            r"\Users\alex\Desktop\Notes.txt",
+            2_310,
+            (2026, 10, 27),
+            true,
+            State::Unknown,
+        ),
+        found(
+            r"\Users\alex\Music\Recital-2026.m4a",
+            6_920_771,
+            (2026, 5, 18),
+            true,
+            State::Intact,
+        ),
+    ];
+    for n in 0..1_191u64 {
+        let path = match n % 3 {
+            0 => format!(r"\Users\alex\Pictures\Camera Roll\IMG-{:04}.jpg", 1_000 + n),
+            1 => format!(r"\Users\alex\Documents\Scans\Scan-{:04}.pdf", n),
+            _ => format!(r"\Windows\System32\example-{n:04}.dll"),
+        };
+        files.push(Found {
+            damaged: DAMAGED_IN_USE.contains(&n),
+            ..found(
+                &path,
+                200_000 + n * 7_919,
+                (2026, 1 + (n % 10) as u8, 1 + (n % 28) as u8),
+                false,
+                State::Intact,
+            )
+        });
+    }
+    Listing {
+        files,
+        notes: Vec::new(),
+        limit: None,
+    }
+}
+
+/// The deleted files listed before the files in use.
+const DELETED_LISTED: usize = 13;
+/// The files in use that read damaged, by their number among them: three pictures.
+const DAMAGED_IN_USE: [u64; 3] = [0, 3, 6];
+
+/// What Find good versions found for the damaged pictures in use: copies of two of them.
+pub fn good_versions() -> candidates::Search {
+    let damaged = |n: u64, versions: Vec<(&str, Kind, bool)>| {
+        let name = format!("IMG-{:04}.jpg", 1_000 + n);
+        let size = 200_000 + n * 7_919;
+        candidates::Damaged {
+            file: DELETED_LISTED + n as usize,
+            folder: ["Users", "alex", "Pictures", "Camera Roll"]
+                .map(String::from)
+                .to_vec(),
+            path: format!(r"\Users\alex\Pictures\Camera Roll\{name}"),
+            size,
+            missing: 64 << 10,
+            format: Some(Format::Jpeg),
+            captured: Some(Capture {
+                when: format!("2026:0{}:0{} 1{n}:12:44", 1 + n % 9, 1 + n % 9),
+                subsec: None,
+            }),
+            versions: versions
+                .into_iter()
+                .enumerate()
+                .map(|(i, (path, kind, deleted))| Version {
+                    file: DELETED_LISTED + 900 + i,
+                    path: format!("{path}\\{name}"),
+                    size: if kind == Kind::Lesser { size / 3 } else { size },
+                    deleted,
+                    kind,
+                    format: Some(Format::Jpeg),
+                })
+                .collect(),
+            name,
+        }
+    };
+    candidates::Search {
+        damaged: vec![
+            damaged(
+                0,
+                vec![(
+                    r"\Users\alex\OneDrive (deleted)\Pictures",
+                    Kind::Whole,
+                    true,
+                )],
+            ),
+            damaged(
+                3,
+                vec![
+                    (r"\Users\alex\Pictures\Backup", Kind::Near, false),
+                    (r"\Users\alex\Pictures\Edited", Kind::Lesser, false),
+                ],
+            ),
+            damaged(6, Vec::new()),
+        ],
+        stopped: false,
+    }
+}
+
+/// The deleted files selected in the recover window, by their place in the listing.
+pub const RECOVER_CHECKED: [usize; 6] = [0, 1, 2, 5, 7, 9];
+
+/// What the search by type found reading the whole drive, in the order it found them.
+pub fn carved() -> Vec<Carved> {
+    let kinds = [
+        (CarveKind::Jpeg, "jpg", 3_400_000),
+        (CarveKind::Jpeg, "jpg", 4_100_000),
+        (CarveKind::Pdf, "pdf", 1_250_000),
+        (CarveKind::Jpeg, "jpg", 2_900_000),
+        (CarveKind::Png, "png", 640_000),
+        (CarveKind::Zip, "docx", 31_000),
+        (CarveKind::Jpeg, "jpg", 3_800_000),
+        (CarveKind::Mp4, "mp4", 212_000_000),
+        (CarveKind::Zip, "xlsx", 88_000),
+    ];
+    (0..63u64)
+        .map(|n| {
+            let (kind, ext, size) = kinds[(n as usize * 5 + n as usize / 3) % kinds.len()];
+            Carved {
+                kind,
+                ext,
+                offset: VOLUME_START + 3 * GIB + n * 9 * GIB + (n * 7_919 % 4_096) * 512,
+                len: size + n * 13_337,
+                damaged: n % 17 == 5,
+            }
+        })
+        .collect()
+}
+
+/// The finds selected in the search by type, by their place in the list.
+pub const CARVED_CHECKED: [usize; 4] = [0, 1, 3, 6];
+
+/// How the search by type ended: the whole drive read in 7 h 12 min, with the drive's
+/// unreadable areas skipped.
+pub fn carve_search() -> ((u64, u64, u64), (usize, u64)) {
+    (
+        (RECOVERY_SIZE, RECOVERY_SIZE, 7 * 3_600 + 12 * 60),
+        (14, 11 * GIB + 3 * MIB),
+    )
+}
+
+// ---- the rescue copy ---------------------------------------------------------------------
+
+/// The rescue copy of two of alex's folders partway through its first pass.
+pub fn rescue_copy() -> crate::rescue_copy_view::Copying {
+    let on_drive = |rest: &str| format!(r"{RECOVERY_LETTER}:\Users\alex\{rest}");
+    // As the copy says a file with unreadable parts.
+    let damaged = |rest: &str, unreadable: u64, len: u64| {
+        format!(
+            "Damaged: {}  ({} of {} unreadable, written as zeros)",
+            on_drive(rest),
+            bytes_text(unreadable),
+            bytes_text(len)
+        )
+    };
+    crate::rescue_copy_view::Copying {
+        sources: vec![
+            PathBuf::from(on_drive("Documents")),
+            PathBuf::from(on_drive("Pictures")),
+        ],
+        destination: PathBuf::from(RECOVERED),
+        figures: [1, 1_284, 21_406_118_912, 3, 1],
+        current: on_drive(r"Pictures\Holiday 2025\Holiday-2025-087.jpg"),
+        notes: vec![
+            damaged(
+                r"Pictures\Holiday 2025\Holiday-2025-003.jpg",
+                64 << 10,
+                4_506_871,
+            ),
+            format!(
+                "Skipped: {}  (could not be opened, error 32)",
+                on_drive(r"Documents\Outlook Files\alex.pst")
+            ),
+            damaged(
+                r"Pictures\Birthday 2025\Birthday-party.mp4",
+                1 << 20,
+                1_402_331_904,
+            ),
+            damaged(r"Documents\Taxes-2024.pdf", 4 << 10, 1_284_552),
+        ],
+        rate: 23_800_000.0,
+    }
 }

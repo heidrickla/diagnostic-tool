@@ -7,7 +7,7 @@ use std::process::Command;
 
 /// Each picture with its pixel width and, where the window's height does not follow its
 /// content, its pixel height.
-const EXPECTED: [(&str, u32, Option<u32>); 7] = [
+const EXPECTED: [(&str, u32, Option<u32>); 12] = [
     ("start", 720, None),
     ("main", 840, None),
     ("hardware", 720, None),
@@ -15,6 +15,11 @@ const EXPECTED: [(&str, u32, Option<u32>); 7] = [
     ("events", 1290, Some(1140)),
     ("drive", 1410, Some(1170)),
     ("cpu-graph", 1350, Some(1110)),
+    ("recovery", 1380, None),
+    ("rescue-copy", 1140, None),
+    ("rescue-image", 1170, None),
+    ("recover-files", 1470, Some(1350)),
+    ("files-by-type", 1350, Some(1140)),
 ];
 
 const MOST_BYTES: u64 = 300 * 1024;

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.3, 2026-11-11
+
+### Tool windows
+
+- A tool window's own drawn buttons are no longer painted blank when another tool window uses the same control ids. With the processor window open, the rescue image window's heat pause buttons drew black.
+
+### Documents
+
+- The README shows five more screenshots: the recovery window, a rescue image partway through, recover deleted or lost files, find files by type and a rescue copy. `cargo xtask screenshots` makes them with the other seven, from made-up drives and files.
+
 ## 1.0.2, 2026-11-11
 
 ### Documents

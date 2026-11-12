@@ -265,6 +265,7 @@ impl SourceChoice {
 
 /// Opens what a recovery tool reads. A disk needs administrator rights.
 pub fn open_source(choice: &SourceChoice) -> Result<Box<dyn BlockSource>, String> {
+    crate::live::reading("a disk, volume or image to recover from");
     match choice {
         SourceChoice::Image(path) => ImageFile::open(path)
             .map(|image| Box::new(image) as Box<dyn BlockSource>)
@@ -284,6 +285,7 @@ pub fn open_source(choice: &SourceChoice) -> Result<Box<dyn BlockSource>, String
 /// `protected` is the source's `BlockSource::protected`: an image's own file cannot be
 /// overwritten, but the drive it was made from can.
 pub fn check_destination(destination: &Path, protected: &dest::Protected) -> Result<(), String> {
+    crate::live::reading("a destination folder's drive");
     dest::Guard::of(protected).check_folder(destination)
 }
 
@@ -292,6 +294,7 @@ pub fn destination_refusal(
     destination: &Path,
     protected: &dest::Protected,
 ) -> Result<(), dest::Refusal> {
+    crate::live::reading("a destination folder's drive");
     dest::Guard::of(protected).folder_refusal(destination)
 }
 

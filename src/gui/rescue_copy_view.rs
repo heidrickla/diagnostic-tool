@@ -41,6 +41,21 @@ pub fn open(owner: HWND, disk: u32, letters: Vec<char>) {
     });
 }
 
+/// Debug builds only: a copy partway through, as `CopyView::copying` shows it.
+#[cfg(debug_assertions)]
+pub struct Copying {
+    pub sources: Vec<PathBuf>,
+    pub destination: PathBuf,
+    /// The pass, files made, bytes copied, damaged and skipped files so far.
+    pub figures: [u64; 5],
+    /// The file being copied now.
+    pub current: String,
+    /// The damaged and skipped files listed so far.
+    pub notes: Vec<String>,
+    /// Bytes a second over the last seconds.
+    pub rate: f64,
+}
+
 struct Running {
     stop: Arc<AtomicBool>,
     progress: Arc<Progress>,
@@ -126,6 +141,49 @@ impl CopyView {
             area: (0, 0, 96),
             natural: None,
         }
+    }
+
+    /// Debug builds only: the window partway through a copy, from `run` alone, for the
+    /// screenshots. No folder is read and no worker runs; the copy's figures are fixed.
+    #[cfg(debug_assertions)]
+    pub fn copying(disk: u32, letters: Vec<char>, run: Copying) -> Self {
+        let progress = Progress::default();
+        let [pass, files, bytes, damaged, skipped] = run.figures;
+        progress.pass.store(pass, Ordering::Relaxed);
+        progress.files.store(files, Ordering::Relaxed);
+        progress.bytes.store(bytes, Ordering::Relaxed);
+        progress.damaged.store(damaged, Ordering::Relaxed);
+        progress.skipped.store(skipped, Ordering::Relaxed);
+        if let Ok(mut current) = progress.current.lock() {
+            *current = run.current;
+        }
+        if let Ok(mut notes) = progress.notes.lock() {
+            *notes = run.notes;
+        }
+        let now = std::time::Instant::now();
+        let samples = (0..=4)
+            .rev()
+            .map(|s| {
+                let at = now
+                    .checked_sub(std::time::Duration::from_secs(s))
+                    .unwrap_or(now);
+                (at, bytes - (run.rate * s as f64) as u64)
+            })
+            .collect();
+        // No sender is left to drop, so the window reads the copy as still going.
+        let (sender, result) = mpsc::channel();
+        std::mem::forget(sender);
+        let mut view = Self::new(disk, letters);
+        view.sources = run.sources;
+        view.destination = Some(run.destination);
+        view.running = Some(Running {
+            stop: Arc::new(AtomicBool::new(false)),
+            progress: Arc::new(progress),
+            samples,
+            result,
+            worker: None,
+        });
+        view
     }
 
     fn status_text(&self) -> (String, Tone) {
@@ -446,6 +504,7 @@ impl Page for CopyView {
             ui::set_font(list, body);
         }
         self.controls = Some(controls);
+        self.refresh_sources();
         self.render();
     }
 

@@ -28,6 +28,7 @@ pub fn details(number: u32, bus: Option<i32>) -> details::Details {
 
 /// Whether this process runs with administrator rights; None when Windows would not say.
 pub fn elevated() -> Option<bool> {
+    crate::live::reading("this process's administrator rights");
     device::elevated()
 }
 

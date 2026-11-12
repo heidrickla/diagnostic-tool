@@ -486,6 +486,7 @@ pub fn open_in_background(
 
 /// The recovery window's reading of a disk with its lettered volumes, within `limit`.
 pub fn read_disk_within(number: u32, limit: Duration) -> Result<Option<Disk>, String> {
+    crate::live::reading("a disk's identity and health");
     match in_time(limit, None, move || {
         device::read_disk(number, &device::volumes_by_disk())
     }) {

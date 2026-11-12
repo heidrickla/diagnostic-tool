@@ -43,6 +43,26 @@ The drive window for a drive with media errors.
 
 The processor and memory window on its CPU graph.
 
+![The recovery window](docs/screenshots/recovery.png)
+
+The recovery window for a failing drive, with its tools for getting data off it.
+
+![A rescue image partway through](docs/screenshots/rescue-image.png)
+
+A rescue image partway through its first pass, with the map of what has been read and the time left.
+
+![Recover deleted or lost files](docs/screenshots/recover-files.png)
+
+Recover deleted or lost files, listing deleted files by how much of each can be recovered.
+
+![Find files by type](docs/screenshots/files-by-type.png)
+
+Find files by type after a search of the whole drive.
+
+![A rescue copy partway through](docs/screenshots/rescue-copy.png)
+
+A rescue copy of folders partway through, noting damaged and skipped files.
+
 The pictures show made-up readings, not those of a real PC. `cargo xtask screenshots` renders them again into `docs/screenshots/` from a debug build, without showing a window.
 
 ## Requirements

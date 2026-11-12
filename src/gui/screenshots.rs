@@ -5,10 +5,11 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
+use diagnostics::recovery::SourceChoice;
 use windows_sys::Win32::Foundation::{GetLastError, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GdiFlush, GetDC, ReleaseDC,
-    SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+    ClientToScreen, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GdiFlush, GetDC,
+    ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
 };
 use windows_sys::Win32::Storage::Xps::{PrintWindow, PW_CLIENTONLY};
 use windows_sys::Win32::System::StationsAndDesktops::{
@@ -22,6 +23,10 @@ use crate::cpumem_view::{self, CpuMemView, Tab};
 use crate::dialog::{self, Dialog};
 use crate::drive_view::DriveView;
 use crate::event_view::EventView;
+use crate::recover_files::{RecoverPage, TypePage};
+use crate::recovery_view::{self, RecoveryView};
+use crate::rescue_copy_view::CopyView;
+use crate::rescue_image_view::ImageView;
 use crate::screenshot_data as data;
 use crate::space_view::SpaceView;
 use crate::toolwin::{self, Page};
@@ -239,6 +244,58 @@ fn take_each(folder: &Path) -> Result<Vec<String>, String> {
             ))
         }),
     )?;
+    // The data recovery windows, all on one made-up failing drive.
+    let source = SourceChoice::Disk(data::RECOVERY_DISK);
+    save(
+        "recovery",
+        capture_tool(main, &recovery_view::key_of(&source), || {
+            Box::new(RecoveryView::read_as(data::recovery_disk(), Some(true)))
+        }),
+    )?;
+    save(
+        "rescue-copy",
+        capture_tool(main, "rescue-copy", || {
+            Box::new(CopyView::copying(
+                data::RECOVERY_DISK,
+                data::recovery_disk().volumes,
+                data::rescue_copy(),
+            ))
+        }),
+    )?;
+    save(
+        "rescue-image",
+        capture_tool(main, "rescue-image", || {
+            Box::new(ImageView::mid_run(data::RECOVERY_DISK, data::rescue_run()))
+        }),
+    )?;
+    let (about, protected) = data::recovery_source();
+    save(
+        "recover-files",
+        capture_tool(main, "recover-files", || {
+            Box::new(RecoverPage::listed(
+                about.clone(),
+                protected.clone(),
+                data::recovery_volumes(),
+                data::recovery_listing(),
+                &data::RECOVER_CHECKED,
+                data::good_versions(),
+            ))
+        }),
+    )?;
+    let (searched, unreadable) = data::carve_search();
+    save(
+        "files-by-type",
+        capture_tool(main, "files-by-type", || {
+            Box::new(TypePage::after_search(
+                about,
+                protected,
+                data::carved(),
+                &data::CARVED_CHECKED,
+                searched,
+                unreadable,
+            ))
+        }),
+    )?;
     unsafe { DestroyWindow(main) };
     Ok(written)
 }
@@ -323,19 +380,92 @@ pub struct Image {
     pub rgb: Vec<u8>,
 }
 
-/// The window's client area as the window draws it into a bitmap of its own.
-fn capture(hwnd: HWND) -> Result<Image, String> {
-    let mut client = RECT {
-        left: 0,
-        top: 0,
-        right: 0,
-        bottom: 0,
-    };
+fn client_size(hwnd: HWND) -> (i32, i32) {
+    let mut client: RECT = unsafe { std::mem::zeroed() };
     unsafe { GetClientRect(hwnd, &mut client) };
-    let (width, height) = (client.right, client.bottom);
+    (client.right, client.bottom)
+}
+
+/// The window's client area as the window draws it into a bitmap of its own. Windows draws
+/// only the part of a window that lies on its desktop, which is the size of this PC's
+/// screen, so a larger window is moved over the desktop part by part and the parts joined.
+fn capture(hwnd: HWND) -> Result<Image, String> {
+    let (width, height) = client_size(hwnd);
     if width <= 0 || height <= 0 {
         return Err("the window has no client area".into());
     }
+    let mut desktop: RECT = unsafe { std::mem::zeroed() };
+    unsafe { GetWindowRect(GetDesktopWindow(), &mut desktop) };
+    let (screen_w, screen_h) = (desktop.right - desktop.left, desktop.bottom - desktop.top);
+    if screen_w <= 0 || screen_h <= 0 {
+        return Err("the desktop has no size".into());
+    }
+    let mut frame: RECT = unsafe { std::mem::zeroed() };
+    unsafe { GetWindowRect(hwnd, &mut frame) };
+    let mut origin = POINT { x: 0, y: 0 };
+    unsafe { ClientToScreen(hwnd, &mut origin) };
+    let (inset_x, inset_y) = (origin.x - frame.left, origin.y - frame.top);
+    let row = width as usize * 3;
+    let mut rgb = vec![0u8; row * height as usize];
+    let mut taken = Ok(());
+    'parts: for top in (0..height).step_by(screen_h as usize) {
+        for left in (0..width).step_by(screen_w as usize) {
+            // This part of the client area goes to the desktop's top left corner.
+            unsafe {
+                SetWindowPos(
+                    hwnd,
+                    std::ptr::null_mut(),
+                    desktop.left - left - inset_x,
+                    desktop.top - top - inset_y,
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+            };
+            if client_size(hwnd) != (width, height) {
+                taken = Err("the window changed size as it was moved".to_string());
+                break 'parts;
+            }
+            let part = match print(hwnd, width, height) {
+                Ok(part) => part,
+                Err(why) => {
+                    taken = Err(why);
+                    break 'parts;
+                }
+            };
+            let (from, to) = (left as usize * 3, (left + screen_w).min(width) as usize * 3);
+            for y in top as usize..(top + screen_h).min(height) as usize {
+                rgb[y * row + from..y * row + to]
+                    .copy_from_slice(&part[y * row + from..y * row + to]);
+            }
+        }
+    }
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            frame.left,
+            frame.top,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        )
+    };
+    taken?;
+    let image = Image {
+        width: width as u32,
+        height: height as u32,
+        rgb,
+    };
+    if colors(&image) < 16 {
+        return Err("the capture is blank".into());
+    }
+    Ok(image)
+}
+
+/// The whole client area, `width` by `height`, as the window draws it with PrintWindow:
+/// three bytes a pixel, rows top first.
+fn print(hwnd: HWND, width: i32, height: i32) -> Result<Vec<u8>, String> {
     let mut info: BITMAPINFO = unsafe { std::mem::zeroed() };
     info.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
     info.bmiHeader.biWidth = width;
@@ -365,7 +495,7 @@ fn capture(hwnd: HWND) -> Result<Image, String> {
         return Err("no bitmap for the capture".into());
     }
     let old = unsafe { SelectObject(memory, bitmap) };
-    // PrintWindow has the window paint into the bitmap, all of it, though no screen shows it.
+    // PrintWindow has the window paint into the bitmap though no screen shows it.
     let printed = unsafe { PrintWindow(hwnd, memory, PW_CLIENTONLY) } != 0;
     unsafe { GdiFlush() };
     let len = width as usize * height as usize * 4;
@@ -385,15 +515,7 @@ fn capture(hwnd: HWND) -> Result<Image, String> {
     if !printed {
         return Err("PrintWindow drew nothing".into());
     }
-    let image = Image {
-        width: width as u32,
-        height: height as u32,
-        rgb,
-    };
-    if colors(&image) < 16 {
-        return Err("the capture is blank".into());
-    }
-    Ok(image)
+    Ok(rgb)
 }
 
 /// How many different colors an image holds, counted up to 256.

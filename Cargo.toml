@@ -1,6 +1,6 @@
 [package]
 name = "diagnostic-tool"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2021"
 description = "Local Windows diagnostics with one consent and a dated findings PDF"
 license = "MIT"

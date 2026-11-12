@@ -317,6 +317,26 @@ impl RecoveryView {
         }
     }
 
+    /// Debug builds only: the window for `disk` as it is once its reading has come back,
+    /// with `elevated` as this process's rights, for the screenshots. Nothing is read.
+    #[cfg(debug_assertions)]
+    pub fn read_as(disk: Disk, elevated: Option<bool>) -> Self {
+        let number = disk.number;
+        let reading = diagnostics::recovery::health_log::Reading::of(Ok(&disk), 0, 0);
+        condition_strip::reading(number, &reading, "once, when this window opened");
+        let choice = SourceChoice::Disk(number);
+        Self {
+            read_from: choice.clone(),
+            choice,
+            header: Header::Ready(Some(Box::new(disk))),
+            elevated,
+            notice: None,
+            controls: None,
+            area: (0, 0, 96),
+            natural: None,
+        }
+    }
+
     fn disk(&self) -> Option<&Disk> {
         match &self.header {
             Header::Ready(disk) => disk.as_deref(),

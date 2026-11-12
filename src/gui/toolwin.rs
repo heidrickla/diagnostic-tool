@@ -98,8 +98,9 @@ thread_local! {
     static OPEN: RefCell<HashMap<String, isize>> = RefCell::new(HashMap::new());
     /// Item heights in 96-dpi pixels by list control id, read during WM_MEASUREITEM.
     static HEIGHTS: RefCell<HashMap<usize, i32>> = RefCell::new(HashMap::new());
-    /// Control ids of owner-drawn surfaces the page paints itself (`canvas`).
-    static CANVASES: RefCell<std::collections::HashSet<usize>> = RefCell::new(Default::default());
+    /// Owner-drawn surfaces each page paints itself (`canvas`), by window and control id, so
+    /// one window's canvas id never takes over another window's button of the same id.
+    static CANVASES: RefCell<std::collections::HashSet<(isize, usize)>> = RefCell::new(Default::default());
     /// The tool group whose last window ends the message loop when it closes (`end_process_with`).
     static QUIT_WITH: RefCell<Option<String>> = const { RefCell::new(None) };
     /// What an empty list or text box says instead of nothing, by control (`set_empty`).
@@ -214,7 +215,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             let item = &*(l as *const DRAWITEMSTRUCT);
             if item.CtlType != ODT_LISTBOX {
                 let id = item.CtlID as usize;
-                if !CANVASES.with(|c| c.borrow().contains(&id)) {
+                if !CANVASES.with(|c| c.borrow().contains(&(hwnd as isize, id))) {
                     return ui::draw_item(l);
                 }
                 let state = ItemState {
@@ -336,6 +337,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             });
             ui::forget_window(hwnd);
             FITTED.with(|f| f.borrow_mut().remove(&(hwnd as isize)));
+            CANVASES.with(|c| {
+                c.borrow_mut()
+                    .retain(|(window, _)| *window != hwnd as isize)
+            });
             help_pane::forget(hwnd);
             if key.is_some_and(|key| ends_process(&key)) {
                 close_all();
@@ -501,7 +506,7 @@ pub fn tick_now(hwnd: HWND) {
 /// An owner-drawn surface the page paints itself: its `draw_item` is called with the
 /// control id as the list and index 0, into a buffer starting at 0,0.
 pub fn canvas(parent: HWND, id: usize) -> HWND {
-    CANVASES.with(|c| c.borrow_mut().insert(id));
+    CANVASES.with(|c| c.borrow_mut().insert((parent as isize, id)));
     unsafe {
         CreateWindowExW(
             0,

@@ -970,10 +970,20 @@ impl Drop for RecoverPage {
 
 impl RecoverPage {
     fn new(source: SourceChoice) -> Self {
+        let source_disk = output::source_disk(&source);
+        let describe = source.label();
+        Self::new_with(
+            describe,
+            source_disk,
+            Some(timed::open_in_background(source)),
+        )
+    }
+
+    fn new_with(describe: String, source_disk: Protected, opening: Option<Opening>) -> Self {
         Self {
-            source_disk: output::source_disk(&source),
-            describe: source.label(),
-            opening: Some(timed::open_in_background(source)),
+            source_disk,
+            describe,
+            opening,
             reader: None,
             job: None,
             failure: None,
@@ -1707,6 +1717,39 @@ impl RecoverPage {
     }
 }
 
+/// Debug builds only: a reader that stands in for an opened source in the screenshots, so
+/// the windows' buttons show as they do with one. Nothing reads it unless one is pressed.
+#[cfg(debug_assertions)]
+fn stand_in() -> Reader {
+    Reader::new(Box::new(diagnostics::recovery::MemDisk::new(vec![0; 4096])))
+}
+
+#[cfg(debug_assertions)]
+impl RecoverPage {
+    /// Debug builds only: the window once `volumes` were found and the first one read as
+    /// `listing`, with the files at `checked` selected and `versions` found for its damaged
+    /// pictures, for the screenshots. Nothing is read.
+    pub fn listed(
+        describe: String,
+        source_disk: Protected,
+        volumes: Vec<Volume>,
+        listing: Listing,
+        checked: &[usize],
+        versions: candidates::Search,
+    ) -> Self {
+        let mut page = Self::new_with(describe, source_disk, None);
+        page.reader = Some(stand_in());
+        page.chosen = volumes.first().map(|v| v.start);
+        if let Some(start) = page.chosen {
+            page.listings.insert(start, listing);
+            page.versions = Some((start, versions));
+        }
+        page.volumes = volumes;
+        page.checked = checked.iter().copied().collect();
+        page
+    }
+}
+
 impl Page for RecoverPage {
     fn title(&self) -> String {
         "Recover deleted or lost files".into()
@@ -2208,10 +2251,20 @@ impl Drop for TypePage {
 
 impl TypePage {
     fn new(source: SourceChoice) -> Self {
+        let source_disk = output::source_disk(&source);
+        let describe = source.label();
+        Self::new_with(
+            describe,
+            source_disk,
+            Some(timed::open_in_background(source)),
+        )
+    }
+
+    fn new_with(describe: String, source_disk: Protected, opening: Option<Opening>) -> Self {
         Self {
-            source_disk: output::source_disk(&source),
-            describe: source.label(),
-            opening: Some(timed::open_in_background(source)),
+            source_disk,
+            describe,
+            opening,
             reader: None,
             job: None,
             found_rx: None,
@@ -2496,6 +2549,34 @@ impl TypePage {
             },
         ));
         self.render();
+    }
+}
+
+#[cfg(debug_assertions)]
+impl TypePage {
+    /// Debug builds only: the window once a search of `total` bytes read `read` of them in
+    /// `seconds` and found `found`, with the finds at `checked` selected, for the
+    /// screenshots. Nothing is read.
+    pub fn after_search(
+        describe: String,
+        source_disk: Protected,
+        found: Vec<Carved>,
+        checked: &[usize],
+        (read, total, seconds): (u64, u64, u64),
+        unreadable: (usize, u64),
+    ) -> Self {
+        let mut page = Self::new_with(describe, source_disk, None);
+        page.reader = Some(stand_in());
+        page.found = found;
+        page.checked = checked.iter().copied().collect();
+        page.searched = Some(Searched {
+            read,
+            total,
+            seconds,
+            stopped: read < total,
+            unreadable,
+        });
+        page
     }
 }
 

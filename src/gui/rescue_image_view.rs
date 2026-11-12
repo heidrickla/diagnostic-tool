@@ -82,6 +82,24 @@ pub fn open(owner: HWND, disk: u32) {
     toolwin::open(owner, "rescue-image", || Box::new(ImageView::new(disk)));
 }
 
+/// Debug builds only: a run partway through, as `ImageView::mid_run` shows it.
+#[cfg(debug_assertions)]
+pub struct MidRun {
+    /// The source's description, as an opened disk gives it.
+    pub about: String,
+    pub folder: PathBuf,
+    /// The map as the run began, and as it is now.
+    pub before: Map,
+    pub map: Map,
+    /// The latest health reading in words, and its figures for the condition strip.
+    pub health: String,
+    pub drive: Option<diagnostics::recovery::health_log::Reading>,
+    /// Bytes a second over the last seconds, and on average since the run started.
+    pub rate: f64,
+    pub average: f64,
+    pub running_for: Duration,
+}
+
 type Opened = Result<Box<dyn BlockSource>, String>;
 
 enum Source {
@@ -409,6 +427,88 @@ impl ImageView {
             natural: None,
             about: None,
         }
+    }
+
+    /// Debug builds only: the window partway through a run, from `run` alone, for the
+    /// screenshots. No source is opened and no worker runs; the run's figures are fixed.
+    #[cfg(debug_assertions)]
+    pub fn mid_run(disk: u32, run: MidRun) -> Self {
+        let mut view = Self::with_source(disk, Source::Busy);
+        let now = Instant::now();
+        let ago = |seconds: f64| {
+            now.checked_sub(Duration::from_secs_f64(seconds))
+                .unwrap_or(now)
+        };
+        let map = run.map;
+        let rescued = map.count(Status::Rescued);
+        let progress = Progress::default();
+        progress.rescued.store(rescued, Ordering::Relaxed);
+        progress.failed.store(map.failed(), Ordering::Relaxed);
+        progress
+            .untried
+            .store(map.count(Status::Untried), Ordering::Relaxed);
+        progress
+            .non_trimmed
+            .store(map.count(Status::NonTrimmed), Ordering::Relaxed);
+        progress
+            .non_scraped
+            .store(map.count(Status::NonScraped), Ordering::Relaxed);
+        progress
+            .bad
+            .store(map.count(Status::Bad), Ordering::Relaxed);
+        progress.pos.store(map.current_pos, Ordering::Relaxed);
+        if let Ok(mut health) = progress.health.lock() {
+            *health = run.health;
+        }
+        if let Ok(mut drive) = progress.drive.lock() {
+            *drive = run.drive;
+        }
+        if let Ok(mut reading) = progress.reading.lock() {
+            *reading = Some(map.current_pos);
+        }
+        // The pace of the last ten minutes, as the estimate would have seen it.
+        let phase = (map.phase, map.pass);
+        let left = image::phase_left(&map);
+        let mut estimate = image::Estimate::default();
+        for seconds in [600.0, 400.0, 200.0, 0.0] {
+            let done_since = (run.rate * seconds) as u64;
+            estimate.observe(ago(seconds), phase, left + done_since, true);
+        }
+        let samples = (0..=4)
+            .rev()
+            .map(|s| {
+                (
+                    ago(f64::from(s)),
+                    rescued - (run.rate * f64::from(s)) as u64,
+                )
+            })
+            .collect();
+        let running_for = run.running_for.as_secs_f64();
+        if let Ok(mut state) = progress.state.lock() {
+            *state = Some((map.phase, map.pass, map.clone()));
+        }
+        // No sender is left to drop, so the window reads the run as still going.
+        let (sender, result) = mpsc::channel();
+        std::mem::forget(sender);
+        view.running = Some(Running {
+            stop: Arc::new(AtomicBool::new(false)),
+            resume_now: Arc::new(AtomicBool::new(false)),
+            progress: Arc::new(progress),
+            result,
+            fill: None,
+            worker: None,
+            started: ago(running_for),
+            start_rescued: rescued.saturating_sub((run.average * running_for) as u64),
+            samples,
+            estimate,
+        });
+        view.about = Some(run.about);
+        view.folder = Some(run.folder);
+        view.before = Some(run.before);
+        view.reading = Some(map.current_pos);
+        view.map = Some(map);
+        view.confirmed = true;
+        view
     }
 
     fn describe(&self) -> String {

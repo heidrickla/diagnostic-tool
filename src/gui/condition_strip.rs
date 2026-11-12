@@ -66,6 +66,17 @@ pub fn reading(disk: u32, reading: &Reading, every: &str) {
     });
 }
 
+/// Debug builds only: lines of a rescue's event log for `disk`, taken as a followed log's
+/// lines are, for the screenshots; no file is read.
+#[cfg(debug_assertions)]
+pub fn logged(disk: u32, lines: &[String]) {
+    with_feed(disk, |feed| {
+        for line in lines {
+            feed.history.line(line);
+        }
+    });
+}
+
 /// How fast `disk` is read now; None once nothing reads it.
 pub fn speed(disk: u32, speed: Option<Speed>) {
     with_feed(disk, |feed| feed.speed = speed);

@@ -522,6 +522,7 @@ impl Tail {
     /// The whole lines added since the last call; a log first read starts at most
     /// `TAIL_START` before its end, from a whole line.
     pub fn read(&mut self) -> Vec<String> {
+        crate::live::reading("a rescue's event log");
         let Ok(mut file) = File::open(&self.path) else {
             return Vec::new();
         };
